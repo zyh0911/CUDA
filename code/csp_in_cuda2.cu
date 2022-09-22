@@ -198,11 +198,11 @@ __global__ void cspincuda(  unsigned long * const data,\
     sort_struct(array_tmp,sortarray,struct_tmp,tid);//step3:sort array
 }
 
-//sorta sortarray[NUM_ELEMENT];//定义为全局变量避免堆栈溢出
+sorta sortarray[NUM_ELEMENT];//定义为全局变量避免堆栈溢出
 
 int main(void)
 {   
-    sorta sortarray[NUM_ELEMENT];
+    //sorta sortarray[NUM_ELEMENT];
     for(unsigned long i = 0; i < NUM_ELEMENT; i++)  
     {
         sortarray[i].key = i;
