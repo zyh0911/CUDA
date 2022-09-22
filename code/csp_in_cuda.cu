@@ -11,40 +11,18 @@
 #include<stdlib.h>
 
 using namespace std;
-//#define  
-unsigned long const  NUM_ELEMENT=1<<18+5;
-#define NUM_LISTS   1024
-
+//#define
+unsigned long const  NUM_ELEMENT=(1<<10);
+#define NUM_LISTS   256
+#define NUM_GRIDS 2
+ 
 template<class T> 
 void c_swap(T &x, T &y)
 {   T tmp1 = x; 
     x = y;
     y = tmp1;
 }
-__device__ int search_index(unsigned long * const array_tmp,unsigned long val)
-{
-    //二分法找元素index
-    int low = 0;	
-	int high = NUM_ELEMENT - 1;
-	int mid;	
-    while(low<=high)
-    {
-        mid=(low+high)/2;
-        if(array_tmp[mid]<val)
-        {
-            low=mid+1;
-        }
-        else if(array_tmp[mid]>val)
-        {
-            high=mid-1;
-        }
-        else
-        {
-            return mid;
-        }
-    }
-    return -1;
-}
+
 template <typename S> 
 __device__ void copy_index(S * sortarray,\
                 unsigned long * const data,\
@@ -102,6 +80,7 @@ __device__ void merge(      unsigned long * const data,\
     for(long i = 0; i < NUM_ELEMENT; i++)
     {
         __shared__ unsigned long self_data[NUM_LISTS];
+
         self_data[tid]=0xFFFFFFFF;
         min_data=0xFFFFFFFF;
         __syncthreads();
@@ -127,29 +106,56 @@ __device__ void merge(      unsigned long * const data,\
     }
     
 }
-
+__device__ int search_index(unsigned long * const array_tmp,unsigned long val)
+{
+    int left = 0;
+    int right = NUM_ELEMENT - 1;
+    while (left <= right)
+    {
+        int middle = (right + left) / 2;
+        if (array_tmp[middle] > val)
+        {
+            right = middle - 1;
+ 
+        }
+        else if (array_tmp[middle] < val)
+        {
+            left = middle + 1;
+        }
+        else {
+            return middle;
+        }
+    }
+    return -1;
+    //二分法找元素index
+}
 template <typename S> 
 __device__ void sort_index( S* sortarray,\
                             unsigned long * const array_tmp,\
                             unsigned long * const data,\
                             const unsigned int tid)
 {
+    for(int i = 0; i < NUM_ELEMENT;  i+=NUM_LISTS)
+    {
+        data[tid+i]=search_index(array_tmp,sortarray[i+tid].key); 
+    }
+    __syncthreads();
      for(int i = 0; i < NUM_ELEMENT;  i+=NUM_LISTS)
-    {   
-        data[tid+i]=search_index(array_tmp,sortarray[i+tid].key);
+    {
+        array_tmp[data[tid+i]]=tid+i;
     }
     __syncthreads();
 }
 
 template <typename S> 
-__device__ void  sort_struct(   unsigned long * const data,\
+__device__ void  sort_struct(   unsigned long * const array_tmp,\
                                 S* sortarray,\
                                 S* struct_tmp,\
                                 const unsigned int tid)
 {
     for(int i = 0; i < NUM_ELEMENT;  i+=NUM_LISTS)
     {
-        struct_tmp[tid+i]=sortarray[data[tid+i]];
+        struct_tmp[tid+i]=sortarray[array_tmp[tid+i]];
     }
     __syncthreads();
     for(int i = 0; i < NUM_ELEMENT;  i+=NUM_LISTS)
@@ -159,8 +165,19 @@ __device__ void  sort_struct(   unsigned long * const data,\
     __syncthreads();
 }
 
-
-
+template <typename S> 
+__device__ int search(S *nums, unsigned long val)
+{
+    
+    for(int i=0;i<NUM_ELEMENT;i++)
+    {
+        if(nums[i].key==val)
+        {    
+            return i;
+        }
+    }
+    return -1;
+}
 typedef struct SORTSTRUCT{
     unsigned long key;
     }sorta;
@@ -176,17 +193,16 @@ __global__ void cspincuda(  unsigned long * const data,\
     
     copy_index(sortarray,data,tid);//step1:copy index
     radix_sort(data,array_tmp,tid);
-    merge(data, array_tmp,tid);
+    merge( data, array_tmp,tid);
     sort_index(sortarray,array_tmp,data,tid);//step2:sort_by_key
-    sort_struct(data,sortarray,struct_tmp,tid);//step3:sort array
-
+    sort_struct(array_tmp,sortarray,struct_tmp,tid);//step3:sort array
 }
 
+sorta sortarray[NUM_ELEMENT];//定义为全局变量避免堆栈溢出
 
 int main(void)
 {   
-    
-    sorta sortarray[NUM_ELEMENT];
+    //sorta sortarray[NUM_ELEMENT];
     for(unsigned long i = 0; i < NUM_ELEMENT; i++)  
     {
         sortarray[i].key = i;
@@ -195,7 +211,6 @@ int main(void)
     {
         c_swap(sortarray[rand()%7].key, sortarray[i].key);
     }
-    
     unsigned long  *gpu_srcData;
     unsigned long  *array_tmp;
     sorta * gpu_sortarray;
@@ -210,7 +225,7 @@ int main(void)
     
     //cudaError_t error = cudaGetLastError();
     dim3 grid(1);
-    dim3 block(1024);  
+    dim3 block(32);  
 
     clock_t start, end;
     start = clock();
@@ -218,9 +233,9 @@ int main(void)
     cudaDeviceSynchronize();
     end = clock();
     cudaError_t error = cudaGetLastError();
+      
     
     cudaMemcpy(sortarray, gpu_sortarray, sizeof(sorta)*NUM_ELEMENT, cudaMemcpyDeviceToHost);
-    
     cudaFree(gpu_srcData);
     cudaFree(array_tmp);
     cudaFree(gpu_sortarray);
@@ -246,7 +261,7 @@ int main(void)
         printf("%ld\n",sortarray[i].key);
     }
     */
-    printf("%d\n",NUM_ELEMENT);
+    printf("%ld\n",NUM_ELEMENT);
     printf("%d\n",result);
     if(result==0)
     {
@@ -258,7 +273,6 @@ int main(void)
     }
     printf("run time is %.8lf\n", (double)(end-start)/CLOCKS_PER_SEC);
     
+    
 }
-
-
 

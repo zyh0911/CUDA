@@ -12,7 +12,7 @@
 
 using namespace std;
 //#define
-unsigned long const  NUM_ELEMENT=(1<<2);
+unsigned long const  NUM_ELEMENT=(1<<10);
 #define NUM_LISTS   32
 #define NUM_GRIDS 2
  
@@ -202,6 +202,13 @@ sorta sortarray[NUM_ELEMENT];//定义为全局变量避免堆栈溢出
 
 int main(void)
 {   
+    int blockSize;      // The launch configurator returned block size 
+    int minGridSize;    // The minimum grid size needed to achieve the maximum occupancy for a full device launch 
+    int gridSize;       // The actual grid size needed, based on input size 
+
+ 
+    
+
     //sorta sortarray[NUM_ELEMENT];
     for(unsigned long i = 0; i < NUM_ELEMENT; i++)  
     {
@@ -224,14 +231,31 @@ int main(void)
     cudaMemcpy(gpu_sortarray, sortarray, sizeof(sorta)*NUM_ELEMENT, cudaMemcpyHostToDevice);
     
     //cudaError_t error = cudaGetLastError();
-    dim3 grid(1);
-    dim3 block(NUM_LISTS/2,2);  
-
-    clock_t start, end;
-    start = clock();
-    cspincuda<<<grid,block>>>(gpu_srcData,array_tmp,gpu_sortarray,struct_tmp);
+    float time;
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start, 0);
+ 
+    cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, cspincuda, 0, NUM_ELEMENT); 
+    // Round up according to array size 
+    gridSize = (NUM_ELEMENT+ blockSize - 1) / blockSize;
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&time, start, stop);
+    printf("Occupancy calculator elapsed time:  %3.3f ms \n", time);
+ 
+    cudaEventRecord(start, 0);
+    clock_t start1, end1;
+    start1 = clock();
+    cspincuda<<<gridSize, blockSize>>>(gpu_srcData,array_tmp,gpu_sortarray,struct_tmp);
     cudaDeviceSynchronize();
-    end = clock();
+    end1 = clock();
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&time, start, stop);
+    printf("Kernel elapsed time:  %3.3f ms \n", time);
+    printf("Blocksize %i\n", blockSize);
     cudaError_t error = cudaGetLastError();
       
     
@@ -271,7 +295,7 @@ int main(void)
     {
         printf("result is false.\n");
     }
-    printf("run time is %.8lf\n", (double)(end-start)/CLOCKS_PER_SEC);
+    printf("run time is %.8lf\n", (double)(end1-start1)/CLOCKS_PER_SEC);
     
     
 }
