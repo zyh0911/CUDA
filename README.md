@@ -1,3 +1,2 @@
 # CUDA
-
-csp_in_cuda的问题是atomicMin在
+将search方法替换为了二分法，解决了堆栈溢出问题

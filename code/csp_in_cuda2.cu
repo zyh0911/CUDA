@@ -12,8 +12,8 @@
 
 using namespace std;
 //#define
-unsigned long const  NUM_ELEMENT=1<<20;
-#define NUM_LISTS   1024
+unsigned long const  NUM_ELEMENT=(1<<2);
+#define NUM_LISTS   32
 #define NUM_GRIDS 2
  
 template<class T> 
@@ -196,14 +196,13 @@ __global__ void cspincuda(  unsigned long * const data,\
     merge( data, array_tmp,tid);
     sort_index(sortarray,array_tmp,data,tid);//step2:sort_by_key
     sort_struct(array_tmp,sortarray,struct_tmp,tid);//step3:sort array
-    
 }
 
-sorta sortarray[NUM_ELEMENT];//定义为全局变量避免堆栈溢出
+//sorta sortarray[NUM_ELEMENT];//定义为全局变量避免堆栈溢出
 
 int main(void)
 {   
-    
+    sorta sortarray[NUM_ELEMENT];
     for(unsigned long i = 0; i < NUM_ELEMENT; i++)  
     {
         sortarray[i].key = i;

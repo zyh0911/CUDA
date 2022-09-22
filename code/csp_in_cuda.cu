@@ -11,8 +11,8 @@
 #include<stdlib.h>
 
 using namespace std;
-//#define
-unsigned long const  NUM_ELEMENT=1<<18;
+//#define  
+unsigned long const  NUM_ELEMENT=1<<18+5;
 #define NUM_LISTS   1024
 
 template<class T> 
@@ -195,12 +195,7 @@ int main(void)
     {
         c_swap(sortarray[rand()%7].key, sortarray[i].key);
     }
-    /*
-    for(int i=0;i<NUM_ELEMENT;i++)
-    {
-        printf("%ld\n",sortarray[i].key);
-    }
-    */
+    
     unsigned long  *gpu_srcData;
     unsigned long  *array_tmp;
     sorta * gpu_sortarray;
