@@ -79,7 +79,7 @@ __device__ void merge(      unsigned long * const data,\
 {  
     __shared__ unsigned  int index[NUM_LISTS];
     __shared__ unsigned int min_data;
-    
+    __shared__ unsigned int min_tid;
     index[tid]=0;
     __syncthreads();
     
@@ -89,6 +89,7 @@ __device__ void merge(      unsigned long * const data,\
 
         self_data[tid]=0xFFFFFFFF;
         min_data=0xFFFFFFFF;
+        min_tid=0xFFFFFFFF;
         __syncthreads();
         
         if (tid+index[tid]*NUM_LISTS<NUM_ELEMENT)
@@ -103,6 +104,11 @@ __device__ void merge(      unsigned long * const data,\
         atomicMin(&(min_data), self_data[tid]);  
         __syncthreads();
         if(self_data[tid]==min_data)
+        {
+            atomicMin(&(min_tid), tid); 
+        }
+        __syncthreads();
+        if (tid==min_tid)
         {
             array_tmp[i]=min_data;
             index[tid]=index[tid]+1;
@@ -231,15 +237,17 @@ sorta sortarray[NUM_ELEMENT];//定义为全局变量避免堆栈溢出
 
 int main(void)
 {   
-    //sorta sortarray[NUM_ELEMENT];
     for(unsigned long i = 0; i < NUM_ELEMENT; i++)  
     {
         sortarray[i].key = i;
+        //sortarray[i].key = i%35;//key值相等的情况
     }  
+    
     for(int i = 0; i < NUM_ELEMENT; i++)
     {
         c_swap(sortarray[rand()%7].key, sortarray[i].key);
     }
+
     unsigned long  *gpu_srcData;
     unsigned long  *array_tmp;
     sorta * gpu_sortarray;
