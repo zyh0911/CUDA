@@ -27,7 +27,7 @@ template <typename S>
 __device__ void copy_index(S * sortarray,\
                 unsigned long * const data,\
                 const unsigned int tid)
-{
+{   
     for(int i = 0; i < NUM_ELEMENT;  i+=NUM_LISTS)
     {
         data[tid+i]=sortarray[tid+i].key; 
@@ -261,8 +261,8 @@ int main(void)
     cudaMemcpy(gpu_sortarray, sortarray, sizeof(sorta)*NUM_ELEMENT, cudaMemcpyHostToDevice);
     
     //cudaError_t error = cudaGetLastError();
-    dim3 grid(1);
-    dim3 block(32,NUM_LISTS/32);  
+    dim3 grid(2);
+    dim3 block(32);  
 
     clock_t start, end;
     start = clock();

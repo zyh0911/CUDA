@@ -13,7 +13,7 @@
 using namespace std;
 //#define
 unsigned long const  NUM_ELEMENT=(1<<10)+5;
-#define NUM_LISTS   64
+#define NUM_LISTS   256
 #define NUM_GRIDS 2
  
 template<class T> 
@@ -28,8 +28,7 @@ __device__ void copy_index(S * sortarray,\
                 unsigned long * const data,\
                 const unsigned int tid)
 {   
-    const int nStep = gridDim.x * blockDim.x;
-    for(int i = 0; i < NUM_ELEMENT;  i+=nStep)
+    for(int i = 0; i < NUM_ELEMENT;  i+=NUM_LISTS)
     {
         data[tid+i]=sortarray[tid+i].key; 
     }
@@ -40,30 +39,30 @@ __device__ void radix_sort(unsigned long * const sort_tmp,\
                             unsigned long  * const sort_tmp_1,\
                             const unsigned int tid) 
 {
-    const int nStep = gridDim.x * blockDim.x;
+
     for(unsigned long bit_mask = 1; bit_mask > 0; bit_mask <<= 1)    
     {
         unsigned int base_cnt_0 = 0;
         unsigned int base_cnt_1 = 0;
 
-        for (int i = 0; i < NUM_ELEMENT; i+=nStep) 
+        for (int i = 0; i < NUM_ELEMENT; i+=NUM_LISTS) 
         {   
             if(tid+i<NUM_ELEMENT)
             {
             if(sort_tmp[i+tid] & bit_mask)  
             {
                 sort_tmp_1[base_cnt_1+tid] = sort_tmp[i+tid];
-                base_cnt_1 += nStep;
+                base_cnt_1 += NUM_LISTS;
             }
             else    
             {
                 sort_tmp[base_cnt_0+tid] = sort_tmp[i+tid];
-                base_cnt_0 += nStep;
+                base_cnt_0 += NUM_LISTS;
             }
             }
         }
 
-        for (unsigned long i = 0; i < base_cnt_1; i+=nStep)  
+        for (unsigned long i = 0; i < base_cnt_1; i+=NUM_LISTS)  
         {   
             if(tid+i<NUM_ELEMENT)
             {
@@ -79,6 +78,10 @@ __device__ void merge(      unsigned long * const data,\
                             const unsigned int tid)
 {  
     const int nStep = gridDim.x * blockDim.x;
+    //先合到一个block，然后的话再比较
+
+
+    /*
     __shared__ unsigned  int index[NUM_LISTS];
     __shared__ unsigned int min_data;
     __shared__ unsigned int min_tid;
@@ -94,9 +97,9 @@ __device__ void merge(      unsigned long * const data,\
         min_tid=0xFFFFFFFF;
         __syncthreads();
         
-        if (tid+index[tid]*nStep<NUM_ELEMENT)
+        if (tid+index[tid]*NUM_LISTS<NUM_ELEMENT)
         {
-            self_data[tid]=data[tid+index[tid]*nStep];
+            self_data[tid]=data[tid+index[tid]*NUM_LISTS];
         }
         else
         {
@@ -118,7 +121,7 @@ __device__ void merge(      unsigned long * const data,\
         __syncthreads();
         
     }
-    
+    */
 }
 __device__ int search_index(unsigned long * const array_tmp,unsigned long val)
 {
@@ -149,8 +152,7 @@ __device__ void sort_index( S* sortarray,\
                             unsigned long * const data,\
                             const unsigned int tid)
 {
-    const int nStep = gridDim.x * blockDim.x;
-    for(int i = 0; i < NUM_ELEMENT;  i+=nStep)
+    for(int i = 0; i < NUM_ELEMENT;  i+=NUM_LISTS)
     {
         
         if(tid+i<NUM_ELEMENT)
@@ -160,7 +162,7 @@ __device__ void sort_index( S* sortarray,\
         }
     }
     __syncthreads();
-     for(int i = 0; i < NUM_ELEMENT;  i+=nStep)
+     for(int i = 0; i < NUM_ELEMENT;  i+=NUM_LISTS)
     {
         if(tid+i<NUM_ELEMENT)
         {
@@ -177,8 +179,8 @@ __device__ void  sort_struct(   unsigned long * const array_tmp,\
                                 S* struct_tmp,\
                                 const unsigned int tid)
 {
-    const int nStep = gridDim.x * blockDim.x;
-    for(int i = 0; i < NUM_ELEMENT;  i+=nStep)
+   
+    for(int i = 0; i < NUM_ELEMENT;  i+=NUM_LISTS)
     {
         if(tid+i<NUM_ELEMENT)
     {
@@ -188,7 +190,7 @@ __device__ void  sort_struct(   unsigned long * const array_tmp,\
     }
     __syncthreads();
     
-    for(int i = 0; i < NUM_ELEMENT;  i+=nStep)
+    for(int i = 0; i < NUM_ELEMENT;  i+=NUM_LISTS)
     {
         if(tid+i<NUM_ELEMENT)
     {
@@ -264,8 +266,8 @@ int main(void)
     cudaMemcpy(gpu_sortarray, sortarray, sizeof(sorta)*NUM_ELEMENT, cudaMemcpyHostToDevice);
     
     //cudaError_t error = cudaGetLastError();
-    dim3 grid(2);
-    dim3 block(32);  
+    dim3 grid(2,2);
+    dim3 block(32,2);  
 
     clock_t start, end;
     start = clock();
