@@ -46,7 +46,9 @@ __device__ void radix_sort(unsigned long * const sort_tmp,\
         unsigned int base_cnt_1 = 0;
 
         for (int i = 0; i < NUM_ELEMENT; i+=NUM_LISTS) 
-        {
+        {   
+            if(tid+i<NUM_ELEMENT)
+            {
             if(sort_tmp[i+tid] & bit_mask)  
             {
                 sort_tmp_1[base_cnt_1+tid] = sort_tmp[i+tid];
@@ -57,11 +59,15 @@ __device__ void radix_sort(unsigned long * const sort_tmp,\
                 sort_tmp[base_cnt_0+tid] = sort_tmp[i+tid];
                 base_cnt_0 += NUM_LISTS;
             }
+            }
         }
 
         for (unsigned long i = 0; i < base_cnt_1; i+=NUM_LISTS)  
-        {
+        {   
+            if(tid+i<NUM_ELEMENT)
+            {
             sort_tmp[base_cnt_0+i+tid] = sort_tmp_1[i+tid];
+            }
         }
         __syncthreads();
     }
@@ -137,12 +143,21 @@ __device__ void sort_index( S* sortarray,\
 {
     for(int i = 0; i < NUM_ELEMENT;  i+=NUM_LISTS)
     {
+        
+        if(tid+i<NUM_ELEMENT)
+        {
+        
         data[tid+i]=search_index(array_tmp,sortarray[i+tid].key); 
+        }
     }
     __syncthreads();
      for(int i = 0; i < NUM_ELEMENT;  i+=NUM_LISTS)
     {
+        if(tid+i<NUM_ELEMENT)
+        {
         array_tmp[data[tid+i]]=tid+i;
+        
+        }
     }
     __syncthreads();
 }
@@ -153,16 +168,26 @@ __device__ void  sort_struct(   unsigned long * const array_tmp,\
                                 S* struct_tmp,\
                                 const unsigned int tid)
 {
+    
     for(int i = 0; i < NUM_ELEMENT;  i+=NUM_LISTS)
     {
+        if(tid+i<NUM_ELEMENT)
+    {
+        //printf("%d\n",array_tmp[tid+i]);
         struct_tmp[tid+i]=sortarray[array_tmp[tid+i]];
     }
+    }
     __syncthreads();
+    
     for(int i = 0; i < NUM_ELEMENT;  i+=NUM_LISTS)
+    {
+        if(tid+i<NUM_ELEMENT)
     {
         sortarray[tid+i]=struct_tmp[tid+i];
     }
+    }
     __syncthreads();
+    
 }
 
 template <typename S> 
@@ -194,6 +219,10 @@ __global__ void cspincuda(  unsigned long * const data,\
     copy_index(sortarray,data,tid);//step1:copy index
     radix_sort(data,array_tmp,tid);
     merge( data, array_tmp,tid);
+    /*for(int i=0;i<NUM_ELEMENT;i++)
+    {
+        printf("%ld\n",array_tmp[i]);
+    }*/
     sort_index(sortarray,array_tmp,data,tid);//step2:sort_by_key
     sort_struct(array_tmp,sortarray,struct_tmp,tid);//step3:sort array
 }
@@ -225,7 +254,7 @@ int main(void)
     
     //cudaError_t error = cudaGetLastError();
     dim3 grid(1);
-    dim3 block(32,12);  
+    dim3 block(32,NUM_LISTS/32);  
 
     clock_t start, end;
     start = clock();
@@ -255,12 +284,12 @@ int main(void)
         }
         //printf("%ld\n",sortarray[i].key);
     }
-    /*
+    
     for(int i=0;i<NUM_ELEMENT;i++)
     {
         printf("%ld\n",sortarray[i].key);
     }
-    */
+    
     printf("%ld\n",NUM_ELEMENT);
     printf("%d\n",result);
     if(result==0)
