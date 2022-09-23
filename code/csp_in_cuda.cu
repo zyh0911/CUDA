@@ -11,11 +11,11 @@
 #include<stdlib.h>
 
 using namespace std;
-//#define
-unsigned long const  NUM_ELEMENT=(1<<5)+5;
-#define NUM_LISTS   384
+
+#define NUM_LISTS 384
 #define NUM_GRIDS 2
- 
+unsigned long const  NUM_ELEMENT=(1<<21);
+
 template<class T> 
 void c_swap(T &x, T &y)
 {   T tmp1 = x; 

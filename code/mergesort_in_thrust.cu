@@ -8,7 +8,7 @@
 #include <thrust/sort.h>
 #include <thrust/execution_policy.h>
 using namespace std;
-unsigned long const  NUM_ELEMENT=(1<<7);
+unsigned long const  NUM_ELEMENT=(1<<20);
 template<class T> void c_swap(T &x, T &y){ T tmp1 = x; x = y; y = tmp1; }
 
 typedef struct SORTSTRUCT{
@@ -32,12 +32,21 @@ int main(void)
     {
         c_swap(sortarray[rand()%7].key, sortarray[i].key);
     }
-    clock_t start, end;
+    clock_t clock_start, clock_end;
+    cudaEvent_t start, stop;//定义事件
+    cudaEventCreate(&start);//起始时间
+	cudaEventCreate(&stop);//结束时间
+	
     cudaMallocManaged((void **)&sortarray,sizeof(sortarray)*NUM_ELEMENT);
-    start = clock();
-    thrust::sort(sortarray,sortarray+NUM_ELEMENT,seed_compare);
-    end = clock();
 
+    clock_start = clock();
+    cudaEventRecord(start, 0);//记录起始时间
+    thrust::sort(sortarray,sortarray+NUM_ELEMENT,seed_compare);
+    cudaDeviceSynchronize();
+    clock_end = clock();
+    cudaEventRecord(stop, 0);//执行完代码，记录结束时间
+
+	cudaEventSynchronize(stop);
     cudaError_t error = cudaGetLastError();   
     printf("CUDA error: %s\n", cudaGetErrorString(error));
     
@@ -69,6 +78,8 @@ int main(void)
     {
         printf("result is false.\n");
     }
-    printf("run time is %.8lf\n", (double)(end-start)/CLOCKS_PER_SEC);
-    
+    printf("run time is %.8lf\n", (double)(clock_end-clock_start)/CLOCKS_PER_SEC);
+    float elapsedTime;//计算总耗时，单位ms
+	cudaEventElapsedTime(&elapsedTime, start, stop);
+	printf("%f\n", elapsedTime);
 }
