@@ -12,8 +12,8 @@
 
 using namespace std;
 //#define
-unsigned long const  NUM_ELEMENT=(1<<10);
-#define NUM_LISTS   256
+unsigned long const  NUM_ELEMENT=(1<<10)+5;
+#define NUM_LISTS   384
 #define NUM_GRIDS 2
  
 template<class T> 
@@ -225,7 +225,7 @@ int main(void)
     
     //cudaError_t error = cudaGetLastError();
     dim3 grid(1);
-    dim3 block(32);  
+    dim3 block(32,12);  
 
     clock_t start, end;
     start = clock();
