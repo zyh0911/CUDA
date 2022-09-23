@@ -12,9 +12,10 @@
 
 using namespace std;
 //#define
-unsigned long const  NUM_ELEMENT=(1<<10);
-#define NUM_LISTS   256
-#define NUM_GRIDS   32
+unsigned long const  NUM_ELEMENT=(1<<10)+5;
+#define NUM_LISTS   384
+#define NUM_GRIDS 2
+ 
 template<class T> 
 void c_swap(T &x, T &y)
 {   T tmp1 = x; 
@@ -38,7 +39,7 @@ __device__ void radix_sort(unsigned long * const sort_tmp,\
                             unsigned long  * const sort_tmp_1,\
                             const unsigned int tid) 
 {
-
+    
     for(unsigned long bit_mask = 1; bit_mask > 0; bit_mask <<= 1)    
     {
         unsigned int base_cnt_0 = 0;
@@ -71,76 +72,23 @@ __device__ void radix_sort(unsigned long * const sort_tmp,\
         __syncthreads();
     }
 }
-/*
-__device__ void merge(unsigned long * const srcData, 
-                            unsigned long  * const dstData, 
-                            const unsigned int tid
-                            )
-{
-    __shared__ unsigned int min_val_reduction[NUM_GRIDS];
-    unsigned int s_tid = tid /NUM_GRIDS;
-    unsigned int self_index = tid;
-    __shared__ unsigned int min_val;
-    
-    for(int i = 0; i < NUM_ELEMENT; i++)
-    {
-        unsigned int self_data = 0xFFFFFFFF;
-        
-        if(self_index < NUM_ELEMENT)
-        {
-            self_data = srcData[self_index];
-        
-        }
 
-        if(tid < NUM_GRIDS)
-        {
-            min_val_reduction[tid] = 0xFFFFFFFF;
-
-        }
-
-        __syncthreads();
-
-        atomicMin(&(min_val_reduction[s_tid]), self_data);  //分块归约
-
-        __syncthreads();
-
-        if(tid == 0)
-        {
-            min_val = 0xFFFFFFFF;
-        }
-
-        __syncthreads();
-
-        if(tid < NUM_GRIDS)
-        {
-            atomicMin(&min_val, min_val_reduction[tid]);    //归约起来的值再归约
-        }
-
-        __syncthreads();
-
-        if(min_val == self_data)
-        {
-           
-            dstData[i] = min_val;
-            self_index += NUM_LISTS;
-            min_val = 0xFFFFFFFF;
-        }
-
-    }
-}*/
 __device__ void merge(      unsigned long * const data,\
                             unsigned long  * const array_tmp,\
-                            const unsigned int tid)                  
+                            const unsigned int tid)
 {  
-    __shared__ unsigned int index[NUM_LISTS];
-    __shared__ unsigned int min_data;
-    __shared__ unsigned int min_tid;
+    __shared__ unsigned  int index[NUM_LISTS];
+    //__shared__
+    unsigned int min_data;
+    //__shared__
+    unsigned int min_tid;
     index[tid]=0;
     __syncthreads();
     
     for(long i = 0; i < NUM_ELEMENT; i++)
     {
         __shared__ unsigned int self_data[NUM_LISTS];
+
         self_data[tid]=0xFFFFFFFF;
         min_data=0xFFFFFFFF;
         min_tid=0xFFFFFFFF;
@@ -154,39 +102,26 @@ __device__ void merge(      unsigned long * const data,\
         {
             self_data[tid] = 0xFFFFFFFF;
         }
-        //__syncthreads();
-        //atomicMin(&(min_data), self_data[tid]);  
         __syncthreads();
-        for (int j = blockDim.x / 2; j !=0; j/=2)
+        for(int j = 0; j < NUM_LISTS; j++)
         {
-            if (threadIdx.x < j)
-            {
-                atomicMin(&(self_data[threadIdx.x]), self_data[threadIdx.x + j]); 
-            }
-            __syncthreads();
-        }
-
-        if(0 == threadIdx.x)
-        {
-         //atomicAdd(pSum, share_dTemp[0]);
-         atomicMin(&(min_data), self_data[0]); 
-        }
-        
+            min_data=min(min_data, self_data[j]);  
+        } 
         if(self_data[tid]==min_data)
         {
-            atomicMin(&(min_tid), tid); 
+            min_tid=min(min_tid, tid);  
         }
-        __syncthreads();
+        
         if (tid==min_tid)
         {
             array_tmp[i]=min_data;
             index[tid]=index[tid]+1;
         }
         __syncthreads();
+        
     }
     
 }
-
 __device__ int search_index(unsigned long * const array_tmp,unsigned long val)
 {
     int left = 0;
@@ -243,12 +178,12 @@ __device__ void  sort_struct(   unsigned long * const array_tmp,\
                                 S* struct_tmp,\
                                 const unsigned int tid)
 {
-   
+    
     for(int i = 0; i < NUM_ELEMENT;  i+=NUM_LISTS)
     {
         if(tid+i<NUM_ELEMENT)
     {
-        //printf("%d\n",array_tmp[tid+i]);
+        
         struct_tmp[tid+i]=sortarray[array_tmp[tid+i]];
     }
     }
@@ -290,12 +225,12 @@ __global__ void cspincuda(  unsigned long * const data,\
     const unsigned int ix = threadIdx.x + blockIdx.x*blockDim.x;
     const unsigned int iy = threadIdx.y + blockIdx.y*blockDim.y;
     const unsigned int tid = ix+iy*(gridDim.x*blockDim.x);
-    //printf("blockDim.x = %d\n", blockDim.x);
-    //printf("blockDim.y = %d\n", blockDim.y);
-    //printf("gridDim.x = %d\n", gridDim.x);
-    //printf("gridDim.y = %d\n", gridDim.y);
     copy_index(sortarray,data,tid);//step1:copy index
     radix_sort(data,array_tmp,tid);
+    /*for(int i=0;i<NUM_ELEMENT;i++)
+    {
+        printf("%ld\n",data[i]);
+    }*/
     merge( data, array_tmp,tid);
     /*for(int i=0;i<NUM_ELEMENT;i++)
     {
@@ -303,12 +238,17 @@ __global__ void cspincuda(  unsigned long * const data,\
     }*/
     sort_index(sortarray,array_tmp,data,tid);//step2:sort_by_key
     sort_struct(array_tmp,sortarray,struct_tmp,tid);//step3:sort array
+    
 }
 
 sorta sortarray[NUM_ELEMENT];//定义为全局变量避免堆栈溢出
 
 int main(void)
 {   
+    int blockSize;      // The launch configurator returned block size 
+    int minGridSize;    // The minimum grid size needed to achieve the maximum occupancy for a full device launch 
+    int gridSize;       // The actual grid size needed, based on input size 
+
     for(unsigned long i = 0; i < NUM_ELEMENT; i++)  
     {
         sortarray[i].key = i;
@@ -333,17 +273,42 @@ int main(void)
     cudaMemcpy(gpu_sortarray, sortarray, sizeof(sorta)*NUM_ELEMENT, cudaMemcpyHostToDevice);
     
     //cudaError_t error = cudaGetLastError();
-    dim3 grid(NUM_GRIDS);
-    dim3 block(NUM_LISTS/NUM_GRIDS);  
-
-    clock_t start, end;
-    start = clock();
-    cspincuda<<<grid,block>>>(gpu_srcData,array_tmp,gpu_sortarray,struct_tmp);
+    //dim3 grid(1);
+    //dim3 block(32,32);  
+    float time;
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start, 0);
+    //clock_t start, end;
+    //start = clock();
+    cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, cspincuda, 0, NUM_ELEMENT); 
+ 
+    // Round up according to array size 
+    gridSize =1; 
+ 
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&time, start, stop);
+    printf("Occupancy calculator elapsed time:  %3.3f ms \n", time);
+ 
+    cudaEventRecord(start, 0);
+    cspincuda<<<gridSize, blockSize>>>(gpu_srcData,array_tmp,gpu_sortarray,struct_tmp);
     cudaDeviceSynchronize();
-    end = clock();
+    //end = clock();
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&time, start, stop);
+    printf("Kernel elapsed time:  %3.3f ms \n", time);
+ 
+    printf("Blocksize %i\n", blockSize);
+ 
     cudaError_t error = cudaGetLastError();
-      
-    
+ 
+
+ 
+    printf("Test passed\n");
+
     cudaMemcpy(sortarray, gpu_sortarray, sizeof(sorta)*NUM_ELEMENT, cudaMemcpyDeviceToHost);
     cudaFree(gpu_srcData);
     cudaFree(array_tmp);
@@ -380,7 +345,7 @@ int main(void)
     {
         printf("result is false.\n");
     }
-    printf("run time is %.8lf\n", (double)(end-start)/CLOCKS_PER_SEC);
+    //printf("run time is %.8lf\n", (double)(end-start)/CLOCKS_PER_SEC);
     
     
 }

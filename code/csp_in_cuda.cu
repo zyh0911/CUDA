@@ -12,7 +12,7 @@
 
 using namespace std;
 //#define
-unsigned long const  NUM_ELEMENT=(1<<10)+5;
+unsigned long const  NUM_ELEMENT=(1<<5)+5;
 #define NUM_LISTS   384
 #define NUM_GRIDS 2
  
@@ -78,14 +78,16 @@ __device__ void merge(      unsigned long * const data,\
                             const unsigned int tid)
 {  
     __shared__ unsigned  int index[NUM_LISTS];
-    __shared__ unsigned int min_data;
-    __shared__ unsigned int min_tid;
+    //__shared__
+    unsigned int min_data;
+    //__shared__
+    unsigned int min_tid;
     index[tid]=0;
     __syncthreads();
     
     for(long i = 0; i < NUM_ELEMENT; i++)
     {
-        __shared__ unsigned long self_data[NUM_LISTS];
+        __shared__ unsigned int self_data[NUM_LISTS];
 
         self_data[tid]=0xFFFFFFFF;
         min_data=0xFFFFFFFF;
@@ -101,13 +103,15 @@ __device__ void merge(      unsigned long * const data,\
             self_data[tid] = 0xFFFFFFFF;
         }
         __syncthreads();
-        atomicMin(&(min_data), self_data[tid]);  
-        __syncthreads();
+        for(int j = 0; j < NUM_LISTS; j++)
+        {
+            min_data=min(min_data, self_data[j]);  
+        } 
         if(self_data[tid]==min_data)
         {
-            atomicMin(&(min_tid), tid); 
+            min_tid=min(min_tid, tid);  
         }
-        __syncthreads();
+        
         if (tid==min_tid)
         {
             array_tmp[i]=min_data;
@@ -179,7 +183,7 @@ __device__ void  sort_struct(   unsigned long * const array_tmp,\
     {
         if(tid+i<NUM_ELEMENT)
     {
-        //printf("%d\n",array_tmp[tid+i]);
+        
         struct_tmp[tid+i]=sortarray[array_tmp[tid+i]];
     }
     }
@@ -221,9 +225,12 @@ __global__ void cspincuda(  unsigned long * const data,\
     const unsigned int ix = threadIdx.x + blockIdx.x*blockDim.x;
     const unsigned int iy = threadIdx.y + blockIdx.y*blockDim.y;
     const unsigned int tid = ix+iy*(gridDim.x*blockDim.x);
-    
     copy_index(sortarray,data,tid);//step1:copy index
     radix_sort(data,array_tmp,tid);
+    /*for(int i=0;i<NUM_ELEMENT;i++)
+    {
+        printf("%ld\n",data[i]);
+    }*/
     merge( data, array_tmp,tid);
     /*for(int i=0;i<NUM_ELEMENT;i++)
     {
@@ -231,6 +238,7 @@ __global__ void cspincuda(  unsigned long * const data,\
     }*/
     sort_index(sortarray,array_tmp,data,tid);//step2:sort_by_key
     sort_struct(array_tmp,sortarray,struct_tmp,tid);//step3:sort array
+    
 }
 
 sorta sortarray[NUM_ELEMENT];//定义为全局变量避免堆栈溢出
@@ -261,18 +269,21 @@ int main(void)
     cudaMemcpy(gpu_sortarray, sortarray, sizeof(sorta)*NUM_ELEMENT, cudaMemcpyHostToDevice);
     
     //cudaError_t error = cudaGetLastError();
-    dim3 grid(2);
-    dim3 block(32);  
+    dim3 grid(1);
+    dim3 block(32,12);  
 
-    clock_t start, end;
-    start = clock();
+    cudaEvent_t start, stop;//定义事件
+    cudaEventCreate(&start);//起始时间
+	cudaEventCreate(&stop);//结束时间
+
+	cudaEventRecord(start, 0);//记录起始时间
     cspincuda<<<grid,block>>>(gpu_srcData,array_tmp,gpu_sortarray,struct_tmp);
     cudaDeviceSynchronize();
-    end = clock();
-    cudaError_t error = cudaGetLastError();
-      
-    
+    cudaEventRecord(stop, 0);//执行完代码，记录结束时间
+
+	cudaEventSynchronize(stop);
     cudaMemcpy(sortarray, gpu_sortarray, sizeof(sorta)*NUM_ELEMENT, cudaMemcpyDeviceToHost);
+    cudaError_t error = cudaGetLastError();
     cudaFree(gpu_srcData);
     cudaFree(array_tmp);
     cudaFree(gpu_sortarray);
@@ -292,12 +303,12 @@ int main(void)
         }
         //printf("%ld\n",sortarray[i].key);
     }
-    
+    /*
     for(int i=0;i<NUM_ELEMENT;i++)
     {
         printf("%ld\n",sortarray[i].key);
     }
-    
+    */
     printf("%ld\n",NUM_ELEMENT);
     printf("%d\n",result);
     if(result==0)
@@ -308,7 +319,9 @@ int main(void)
     {
         printf("result is false.\n");
     }
-    printf("run time is %.8lf\n", (double)(end-start)/CLOCKS_PER_SEC);
+    float elapsedTime;//计算总耗时，单位ms
+	cudaEventElapsedTime(&elapsedTime, start, stop);
+	printf("%f\n", elapsedTime);
     
     
 }
