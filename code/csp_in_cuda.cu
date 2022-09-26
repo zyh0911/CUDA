@@ -62,12 +62,12 @@ __device__ void radix_sort(unsigned long *const sort_tmp,
 }
 //这里有问题，block之间无法同步，导致信息传输有问题
 __device__ void merge(unsigned long *const data, unsigned long *const array_tmp,
-                      const unsigned int tid,unsigned long *const self_data
+                      const unsigned int tid,unsigned long *const self_data,unsigned long min_data
                       ) {
   //__shared__ 
   unsigned int index[NUM_LISTS];
   //__shared__
-  unsigned long min_data;
+  //unsigned int min_data;
   //__shared__
   //unsigned int min_tid;
   index[tid] = 0;
@@ -75,7 +75,6 @@ __device__ void merge(unsigned long *const data, unsigned long *const array_tmp,
 
   for (int i = 0; i < NUM_ELEMENT; i++) {
     //__shared__ unsigned int self_data[NUM_LISTS];
-    unsigned long min_data;
     self_data[tid] = 0xFFFFFFFF;
     min_data = 0xFFFFFFFF;
     
@@ -88,13 +87,16 @@ __device__ void merge(unsigned long *const data, unsigned long *const array_tmp,
       self_data[tid] = 0xFFFFFFFF;
       __threadfence();
     }
+    
     __threadfence();
+    
     for (int j = 0; j < NUM_LISTS; j++) {
       min_data = min(min_data, self_data[j]);
     }
-    //__syncthreads();
+    //atomicMin(&min_data,self_data[tid]);
+    __syncthreads();
+    //__threadfence();
     //printf("%ld\n",min_data);
-    __threadfence();
     for(int j=0;j<NUM_LISTS;j++)
     {
     if (self_data[j] == min_data) 
@@ -108,6 +110,7 @@ __device__ void merge(unsigned long *const data, unsigned long *const array_tmp,
     }
 
     }
+    __threadfence();
   }
 }
 __device__ int search_index(unsigned long *const array_tmp, unsigned long val) {
@@ -177,13 +180,14 @@ typedef struct SORTSTRUCT {
 
 __global__ void cspincuda(unsigned long *const data,
                           unsigned long *const array_tmp, sorta *sortarray,
-                          sorta *struct_tmp,unsigned long *const self_data) {
+                          sorta *struct_tmp,unsigned long *const self_data,
+                          unsigned long min_data) {
   const unsigned int ix = threadIdx.x + blockIdx.x * blockDim.x;
   const unsigned int iy = threadIdx.y + blockIdx.y * blockDim.y;
   const unsigned int tid = ix + iy * (gridDim.x * blockDim.x);
   copy_index(sortarray, data, tid);  // step1:copy index
   radix_sort(data, array_tmp, tid);
-  merge(data, array_tmp, tid,self_data);
+  merge(data, array_tmp, tid,self_data,min_data);
   //sort_index(sortarray, array_tmp, data, tid);         // step2:sort_by_key
   //sort_struct(array_tmp, sortarray, struct_tmp, tid);  // step3:sort array
 }
@@ -205,10 +209,11 @@ int main(void) {
   sorta *gpu_sortarray;
   sorta *struct_tmp;
   unsigned long *self_data;
-
+  unsigned long min_data;
   cudaMalloc((void **)&gpu_srcData, sizeof(unsigned long) * NUM_ELEMENT);
   cudaMalloc((void **)&array_tmp, sizeof(unsigned long) * NUM_ELEMENT);
   cudaMalloc((void **)&self_data, sizeof(unsigned long) * NUM_LISTS);
+  cudaMalloc((void **)&min_data, sizeof(unsigned long));
   cudaMalloc((sorta **)&gpu_sortarray, sizeof(sorta) * NUM_ELEMENT);
   cudaMalloc((sorta **)&struct_tmp, sizeof(sorta) * NUM_ELEMENT);
 
@@ -224,7 +229,7 @@ int main(void) {
   cudaEventCreate(&stop);   //结束时间
 
   cudaEventRecord(start, 0);  //记录起始时间
-  cspincuda<<<grid, block>>>(gpu_srcData, array_tmp, gpu_sortarray, struct_tmp,self_data);
+  cspincuda<<<grid, block>>>(gpu_srcData, array_tmp, gpu_sortarray, struct_tmp,self_data,min_data);
   cudaDeviceSynchronize();
   cudaEventRecord(stop, 0);  //执行完代码，记录结束时间
 
