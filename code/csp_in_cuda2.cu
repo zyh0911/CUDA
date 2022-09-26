@@ -12,10 +12,9 @@
 #include <iostream>
 
 using namespace std;
-//#define
-unsigned long const NUM_ELEMENT = (1 << 10) + 5;
-#define NUM_LISTS 384
-#define NUM_GRIDS 2
+#define GRID_SIZE 2
+#define NUM_LISTS 128
+unsigned long const NUM_ELEMENT = (1 << 8);
 
 template <class T>
 void c_swap(T &x, T &y) {
@@ -61,44 +60,146 @@ __device__ void radix_sort(unsigned long *const sort_tmp,
   }
 }
 
-__device__ void merge(unsigned long *const data, unsigned long *const array_tmp,
-                      const unsigned int tid) {
-  __shared__ unsigned int index[NUM_LISTS];
-  //__shared__
-  unsigned int min_data;
-  //__shared__
-  unsigned int min_tid;
-  index[tid] = 0;
+__device__ void reduce(unsigned long *const g_idata, unsigned long *const g_odata) {
+  //申请共享内存，存在于每个block中 
+	__shared__ float partialSum[NUM_LISTS/GRID_SIZE];
+ 
+	//确定索引
+	int i = threadIdx.x + blockIdx.x * blockDim.x;
+	int tid = threadIdx.x;
+ 
+	//传global memory数据到shared memory
+	partialSum[tid]=g_idata[i];
+ 
+	//传输同步
+	__syncthreads();
+	
+	//在共享存储器中进行规约
+	for(int stride = blockDim.x/2; stride > 0; stride/=2)
+	{
+		if(tid<stride) partialSum[tid]=min(partialSum[tid+stride],partialSum[tid]);
+		__syncthreads();
+	}
+	//将当前block的计算结果写回输出数组
+	if(tid==0)  
+		g_odata[blockIdx.x] = partialSum[0];
+  /*
+  __shared__ unsigned long sdata[64];
+  unsigned int tid = threadIdx.x+threadIdx.y*blockDim.x;
+  unsigned int i = blockIdx.x * blockDim.x*blockDim.y + tid;
+  unsigned int gridSize = blockDim.x*blockDim.y * gridDim.x;
+  //printf("%d\n",tid);
+  sdata[tid] = 0;
+
+  while (i < blockDim.x*blockDim.y/2) {
+    sdata[tid] = min(sdata[tid], min(g_idata[i], g_idata[i + blockDim.x*blockDim.y/2]));
+    i += gridSize;
+  }
+
   __syncthreads();
 
-  for (long i = 0; i < NUM_ELEMENT; i++) {
-    __shared__ unsigned int self_data[NUM_LISTS];
-
-    self_data[tid] = 0xFFFFFFFF;
-    min_data = 0xFFFFFFFF;
-    min_tid = 0xFFFFFFFF;
+  if (blockDim.x*blockDim.y>= 64) {
+    if (tid < 32) {
+      sdata[tid] = min(sdata[tid], sdata[tid + 32]);
+    }
     __syncthreads();
+  }
+  if (tid < 32) sdata[tid] = min(sdata[tid], sdata[tid + 32]);
+  if (tid == 0) g_odata[blockIdx.x] = sdata[0];
+  */
+}
 
+#define REDUCTION_SIZE 8
+#define REDUCTION_SHIFT 3
+
+__device__ void merge(unsigned long *const data, unsigned long *const array_tmp,
+                      const unsigned int tid)  //分块的归约合并
+{
+  unsigned int index[NUM_LISTS];
+  unsigned long self_data[NUM_LISTS];
+  index[tid] = 0;
+  unsigned long min_data[ GRID_SIZE]={0xFFFFFFFF,0xFFFFFFFF};
+  __syncthreads();
+  for (int i = 0; i < 1; i++) {
     if (tid + index[tid] * NUM_LISTS < NUM_ELEMENT) {
       self_data[tid] = data[tid + index[tid] * NUM_LISTS];
     } else {
       self_data[tid] = 0xFFFFFFFF;
     }
     __syncthreads();
-    for (int j = 0; j < NUM_LISTS; j++) {
-      min_data = min(min_data, self_data[j]);
+    reduce(self_data, min_data);
+    array_tmp[i] = min(min_data[0],min_data[1]);
+    printf("%ld\n",array_tmp[0]);
+    for(int j=0;j<NUM_LISTS;j++)
+    {
+    if(self_data[j]==array_tmp[i])
+    {  
+      index[j] = index[j] + 1;
+      //printf("%d\n",index[tid]);
+      //printf("123\n");
     }
-    if (self_data[tid] == min_data) {
-      min_tid = min(min_tid, tid);
+    __syncthreads();
     }
+  }
+  
+}
 
-    if (tid == min_tid) {
-      array_tmp[i] = min_data;
+/*
+  unsigned int index[NUM_LISTS];
+  unsigned int self_data[NUM_LISTS];
+
+  unsigned int min_data[GRID_SIZE];
+  unsigned int min_tid[GRID_SIZE];
+
+  unsigned int min_tid_new;
+  unsigned int min_value;
+
+  self_data[tid] = 0xFFFFFFFF;
+  index[tid] = 0;
+  __syncthreads();
+  for (int j = 0; j < GRID_SIZE; j++) {
+    min_data[j]= 0xFFFFFFFF;
+    min_tid[j]= 0xFFFFFFFF;
+  }
+  min_value=0xFFFFFFFF;
+  min_tid_new=0xFFFFFFFF;
+  for (int i = 0; i < NUM_ELEMENT; i++) {
+
+    unsigned int block_tid=threadIdx.x + threadIdx.y*blockDim.x;
+
+      if (tid + index[tid] * NUM_LISTS < NUM_ELEMENT) {
+        self_data[tid] = data[tid + index[tid] * NUM_LISTS];
+      }
+      else {
+        self_data[tid] = 0xFFFFFFFF;
+      }
+    for(int j=0;j<GRID_SIZE;j++)
+    {
+      for(int k=0;k<NUM_LISTS/GRID_SIZE;k++)
+      {
+        min_data[j]=min(min_data[j], self_data[k]);
+      }
+      if (self_data[block_tid] == min_value) {
+        min_tid[j] = min(min_tid[j], block_tid+j*NUM_LISTS/GRID_SIZE);
+      }
+    }
+    for (int j = 0; j < GRID_SIZE; j++) {
+    min_value=min(min_value,min_data[j]);
+    }
+    __syncthreads();
+    for (int j = 0; j < GRID_SIZE; j++) {
+    if (min_data[j] == min_value) {
+      min_tid_new= min(min_tid_new,min_tid[j]);
+    }}
+    __syncthreads();
+    if (tid== min_tid_new) {
+      array_tmp[i] = min_value;
       index[tid] = index[tid] + 1;
     }
     __syncthreads();
   }
-}
+  */
+
 __device__ int search_index(unsigned long *const array_tmp, unsigned long val) {
   int left = 0;
   int right = NUM_ELEMENT - 1;
@@ -172,27 +273,16 @@ __global__ void cspincuda(unsigned long *const data,
   const unsigned int tid = ix + iy * (gridDim.x * blockDim.x);
   copy_index(sortarray, data, tid);  // step1:copy index
   radix_sort(data, array_tmp, tid);
-  /*for(int i=0;i<NUM_ELEMENT;i++)
-  {
-      printf("%ld\n",data[i]);
-  }*/
+  // merge(data, array_tmp, tid);
   merge(data, array_tmp, tid);
-  /*for(int i=0;i<NUM_ELEMENT;i++)
-  {
-      printf("%ld\n",array_tmp[i]);
-  }*/
-  sort_index(sortarray, array_tmp, data, tid);         // step2:sort_by_key
-  sort_struct(array_tmp, sortarray, struct_tmp, tid);  // step3:sort array
+
+  // sort_index(sortarray, array_tmp, data, tid);         // step2:sort_by_key
+  // sort_struct(array_tmp, sortarray, struct_tmp, tid);  // step3:sort array
 }
 
 sorta sortarray[NUM_ELEMENT];  //定义为全局变量避免堆栈溢出
 
 int main(void) {
-  int blockSize;    // The launch configurator returned block size
-  int minGridSize;  // The minimum grid size needed to achieve the maximum
-                    // occupancy for a full device launch
-  int gridSize;     // The actual grid size needed, based on input size
-
   for (unsigned long i = 0; i < NUM_ELEMENT; i++) {
     sortarray[i].key = i;
     // sortarray[i].key = i%35;//key值相等的情况
@@ -204,6 +294,7 @@ int main(void) {
 
   unsigned long *gpu_srcData;
   unsigned long *array_tmp;
+
   sorta *gpu_sortarray;
   sorta *struct_tmp;
 
@@ -216,66 +307,41 @@ int main(void) {
              cudaMemcpyHostToDevice);
 
   // cudaError_t error = cudaGetLastError();
-  // dim3 grid(1);
-  // dim3 block(32,32);
-  float time;
-  cudaEvent_t start, stop;
-  cudaEventCreate(&start);
-  cudaEventCreate(&stop);
-  cudaEventRecord(start, 0);
-  // clock_t start, end;
-  // start = clock();
-  cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, cspincuda, 0,
-                                     NUM_ELEMENT);
+  dim3 grid(GRID_SIZE);
+  dim3 block(NUM_LISTS/GRID_SIZE);
 
-  // Round up according to array size
-  gridSize = 1;
+  cudaEvent_t start, stop;  //定义事件
+  cudaEventCreate(&start);  //起始时间
+  cudaEventCreate(&stop);   //结束时间
 
-  cudaEventRecord(stop, 0);
-  cudaEventSynchronize(stop);
-  cudaEventElapsedTime(&time, start, stop);
-  printf("Occupancy calculator elapsed time:  %3.3f ms \n", time);
-
-  cudaEventRecord(start, 0);
-  cspincuda<<<gridSize, blockSize>>>(gpu_srcData, array_tmp, gpu_sortarray,
-                                     struct_tmp);
+  cudaEventRecord(start, 0);  //记录起始时间
+  cspincuda<<<grid, block>>>(gpu_srcData, array_tmp, gpu_sortarray, struct_tmp);
   cudaDeviceSynchronize();
-  // end = clock();
-  cudaEventRecord(stop, 0);
+  cudaEventRecord(stop, 0);  //执行完代码，记录结束时间
+
   cudaEventSynchronize(stop);
-  cudaEventElapsedTime(&time, start, stop);
-  printf("Kernel elapsed time:  %3.3f ms \n", time);
-
-  printf("Blocksize %i\n", blockSize);
-
-  cudaError_t error = cudaGetLastError();
-
-  printf("Test passed\n");
-
-  cudaMemcpy(sortarray, gpu_sortarray, sizeof(sorta) * NUM_ELEMENT,
+  cudaMemcpy(sortarray, array_tmp, sizeof(sorta) * NUM_ELEMENT,
              cudaMemcpyDeviceToHost);
+  cudaError_t error = cudaGetLastError();
   cudaFree(gpu_srcData);
   cudaFree(array_tmp);
   cudaFree(gpu_sortarray);
   cudaFree(struct_tmp);
 
-  printf("CUDA error: %s\n", cudaGetErrorString(error));
-
   int result = 0;
   for (int i = 0; i < NUM_ELEMENT - 1; i++) {
-    if (sortarray[i].key > sortarray[i + 1].key) {
+    if (sortarray[i].key != sortarray[i + 1].key - 1) {
       result++;
       // printf("%ld\n",sortarray[i].key);
       // printf("%ld\n",sortarray[i+1].key);
     }
     // printf("%ld\n",sortarray[i].key);
   }
-  /*
-  for(int i=0;i<NUM_ELEMENT;i++)
-  {
-      printf("%ld\n",sortarray[i].key);
+  /*for (int i = 0; i < NUM_ELEMENT; i++) {
+    printf("%ld\n", sortarray[i].key);
   }
-  */
+*/
+  printf("CUDA error: %s\n", cudaGetErrorString(error));
   printf("%ld\n", NUM_ELEMENT);
   printf("%d\n", result);
   if (result == 0) {
@@ -283,5 +349,7 @@ int main(void) {
   } else {
     printf("result is false.\n");
   }
-  // printf("run time is %.8lf\n", (double)(end-start)/CLOCKS_PER_SEC);
+  float elapsedTime;  //计算总耗时，单位ms
+  cudaEventElapsedTime(&elapsedTime, start, stop);
+  printf("%f\n", elapsedTime);
 }

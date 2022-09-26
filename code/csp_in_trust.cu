@@ -9,7 +9,8 @@
 #include <thrust/execution_policy.h>
 
 using namespace std;
-unsigned long const  NUM_ELEMENT=(1<<20);
+unsigned long const  NUM_ELEMENT=(1<<22);
+
 template<class T> 
 void c_swap(T &x, T &y)
 {   T tmp1 = x;
