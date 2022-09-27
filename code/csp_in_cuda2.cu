@@ -13,7 +13,7 @@
 
 using namespace std;
 #define GRID_SIZE 2
-#define NUM_LISTS 128
+#define NUM_LISTS 16
 unsigned long const NUM_ELEMENT = (1 << 8);
 
 template <class T>
@@ -22,6 +22,24 @@ void c_swap(T &x, T &y) {
   x = y;
   y = tmp1;
 }
+
+struct Lock {
+    int *mutex;
+    Lock(void) {
+        int state = 0;
+        cudaMalloc((void **) &mutex, sizeof(int));
+        cudaMemcpy(mutex, &state, sizeof(int), cudaMemcpyHostToDevice);
+    }
+    ~Lock(void) {
+        cudaFree(mutex);
+    }
+    __device__ void lock(void) {
+        while (atomicCAS(mutex, 0, 1) != 0);
+    }
+    __device__ void unlock(void) {
+        atomicExch(mutex, 0);
+    }
+};
 
 template <typename S>
 __device__ void copy_index(S *sortarray, unsigned long *const data,
@@ -61,7 +79,7 @@ __device__ void radix_sort(unsigned long *const sort_tmp,
 }
 
 __device__ void reduce(unsigned long *const g_idata,
-                       unsigned long *const g_odata) {
+                       unsigned int *const g_odata) {
   __shared__ float partialSum[NUM_LISTS / GRID_SIZE];
 
   //确定索引
@@ -82,145 +100,56 @@ __device__ void reduce(unsigned long *const g_idata,
   }
   //将当前block的计算结果写回输出数组
   if (tid == 0) g_odata[blockIdx.x] = partialSum[0];
-  
- /*
-  // int i = threadIdx.x + blockIdx.x * blockDim.x;
-  // printf("%d is %ld\n",i,g_idata[i]);
-  for (int j = 0; j < GRID_SIZE; j++) {
-    g_odata[j] = 0xFFFFFFFF;
-    for (int i = 0; i < NUM_LISTS / GRID_SIZE; i++) {
-      g_odata[j] = min(g_odata[j], g_idata[i + j * NUM_LISTS / GRID_SIZE]);
-    }
-    printf("%d is %ld\n", j, g_odata[j]);
-  }
-*/
   __syncthreads();
 }
 
-__device__ void merge(unsigned long *const data, unsigned long *const array_tmp,
-                      const unsigned int tid)  //分块的归约合并
+__global__ void merge(unsigned long *const data, unsigned long *const array_tmp,
+                      const unsigned int tid,Lock myLock)  //分块的归约合并
 {
+
   unsigned int index[GRID_SIZE][NUM_LISTS / GRID_SIZE];
   unsigned long self_data[NUM_LISTS];
 
-  unsigned long min_value;
-  unsigned long min_data[GRID_SIZE];
+  __shared__ unsigned int min_value;
+  unsigned int min_data[GRID_SIZE];
   self_data[tid] = data[tid];
   index[blockIdx.x][threadIdx.x] = 0;
   __syncthreads();
-  // printf("%d is %ld\n",tid,data[tid]);
   for (int i = 0; i < 2; i++) {
-    min_value = 0xFFFFFFFF;
-    // min_data[blockIdx.x]= 1145151;
+    min_value = 4567894;
     __syncthreads();
-    //printf("%d is %ld\n",tid,self_data[tid]);
+    // printf("%d is %ld\n",tid,self_data[tid]);
     reduce(self_data, min_data);
-    /*
-    if(i==1)
-    {printf("%ld\n", min_data[0]);
-    //printf("%d\n", min_data[1]);
+    //printf("%d\t",min_data[0]);
+/*
+    if (i == 1) {
+      printf("%d\n", min_data[0]);
+      printf("%d\n", min_data[1]);
     }
-    */
+*/
     for (int j = 0; j < GRID_SIZE; j++) {
       min_value = min(min_value, min_data[j]);
     }
-    //atomicMin(&min_value,min_data[blockIdx.x]);
-    __syncthreads();
-    
+   // if (i == 1) printf("%d\n", min_value);
+    //printf("%d\n", min_value);
     array_tmp[i] = min_value;
     __syncthreads();
-    if (min_data[blockIdx.x] == min_value) {
-      if (self_data[tid] == min_value) {
-       printf("%d\n",tid);
-       printf("%d\n", blockIdx.x);
-       printf("%d\n", threadIdx.x);
+    myLock.lock();
+    if (self_data[tid] == min_value) {
+      printf("%d\n",tid);
+      printf("%d\n", blockIdx.x);
+      printf("%d\n", threadIdx.x);
       index[blockIdx.x][threadIdx.x] = index[blockIdx.x][threadIdx.x] + 1;
       if (index[blockIdx.x][threadIdx.x] < NUM_ELEMENT / NUM_LISTS) {
         self_data[tid] =
             data[threadIdx.x + index[blockIdx.x][threadIdx.x] * NUM_LISTS];
-        //printf("%d\n", tid);
-        // printf("%d\n",data[threadIdx.x + index[blockIdx.x][threadIdx.x] *
-        // NUM_LISTS]);
       } else {
         self_data[tid] = 0xFFFFFFFF;
       }
-      }
-      // printf("%d\n", threadIdx.x);
     }
-   __threadfence();
-    /*
-        for (int j = 0; j < GRID_SIZE; j++) {
-          if (min_data[j] == min_value) {
-            for (int k = 0; k < NUM_LISTS / GRID_SIZE; k++) {
-              if (self_data[k] == min_value) {
-                index[j][k] = index[j][k] + 1;
-                if (index[j][k]  < NUM_ELEMENT/NUM_LISTS) {
-                  self_data[k] = data[k + index[j][k] * NUM_LISTS ];
-                } else {
-                  self_data[k] = 0xFFFFFFFF;
-                }
-
-              }
-            }
-          }
-        }*/
+    myLock.unlock();
   }
 }
-/*
-    unsigned int index[NUM_LISTS];
-    unsigned int self_data[NUM_LISTS];
-
-    unsigned int min_data[GRID_SIZE];
-    unsigned int min_tid[GRID_SIZE];
-
-    unsigned int min_tid_new;
-    unsigned int min_value;
-
-    self_data[tid] = 0xFFFFFFFF;
-    index[tid] = 0;
-    __syncthreads();
-    for (int j = 0; j < GRID_SIZE; j++) {
-      min_data[j]= 0xFFFFFFFF;
-      min_tid[j]= 0xFFFFFFFF;
-    }
-    min_value=0xFFFFFFFF;
-    min_tid_new=0xFFFFFFFF;
-    for (int i = 0; i < NUM_ELEMENT; i++) {
-
-      unsigned int block_tid=threadIdx.x + threadIdx.y*blockDim.x;
-
-        if (tid + index[tid] * NUM_LISTS < NUM_ELEMENT) {
-          self_data[tid] = data[tid + index[tid] * NUM_LISTS];
-        }
-        else {
-          self_data[tid] = 0xFFFFFFFF;
-        }
-      for(int j=0;j<GRID_SIZE;j++)
-      {
-        for(int k=0;k<NUM_LISTS/GRID_SIZE;k++)
-        {
-          min_data[j]=min(min_data[j], self_data[k]);
-        }
-        if (self_data[block_tid] == min_value) {
-          min_tid[j] = min(min_tid[j], block_tid+j*NUM_LISTS/GRID_SIZE);
-        }
-      }
-      for (int j = 0; j < GRID_SIZE; j++) {
-      min_value=min(min_value,min_data[j]);
-      }
-      __syncthreads();
-      for (int j = 0; j < GRID_SIZE; j++) {
-      if (min_data[j] == min_value) {
-        min_tid_new= min(min_tid_new,min_tid[j]);
-      }}
-      __syncthreads();
-      if (tid== min_tid_new) {
-        array_tmp[i] = min_value;
-        index[tid] = index[tid] + 1;
-      }
-      __syncthreads();
-    }
-    */
 
 __device__ int search_index(unsigned long *const array_tmp, unsigned long val) {
   int left = 0;
@@ -289,19 +218,46 @@ typedef struct SORTSTRUCT {
 
 __global__ void cspincuda(unsigned long *const data,
                           unsigned long *const array_tmp, sorta *sortarray,
-                          sorta *struct_tmp) {
+                          sorta *struct_tmp,Lock myLock) {
   const unsigned int ix = threadIdx.x + blockIdx.x * blockDim.x;
   const unsigned int iy = threadIdx.y + blockIdx.y * blockDim.y;
   const unsigned int tid = ix + iy * (gridDim.x * blockDim.x);
-  copy_index(sortarray, data, tid);  // step1:copy index
+  copy_index(sortarray, data, tid);
   radix_sort(data, array_tmp, tid);
-  // merge(data, array_tmp, tid);
-  // printf("%d is %ld\n",tid,data[tid]);
-  merge(data, array_tmp, tid);
 
-  // sort_index(sortarray, array_tmp, data, tid);         //
-  // step2:sort_by_key sort_struct(array_tmp, sortarray, struct_tmp, tid);
-  //  step3:sort array
+  //merge(data, array_tmp, tid,myLock);
+  unsigned int index[GRID_SIZE][NUM_LISTS / GRID_SIZE];
+  unsigned long self_data[NUM_LISTS];
+
+  __shared__ unsigned int min_value;
+  unsigned int min_data[GRID_SIZE];
+  self_data[tid] = data[tid];
+  index[blockIdx.x][threadIdx.x] = 0;
+  __syncthreads();
+  for (int i = 0; i < 2; i++) {
+    min_value = 4567894;
+    __syncthreads();
+    reduce(self_data, min_data);
+    for (int j = 0; j < GRID_SIZE; j++) {
+      min_value = min(min_value, min_data[j]);
+    }
+    array_tmp[i] = min_value;
+    __syncthreads();
+   
+    if (self_data[tid] == min_value) {
+      index[blockIdx.x][threadIdx.x] = index[blockIdx.x][threadIdx.x] + 1;
+      if (index[blockIdx.x][threadIdx.x] < NUM_ELEMENT / NUM_LISTS) {
+        self_data[tid] =
+            data[threadIdx.x + index[blockIdx.x][threadIdx.x] * NUM_LISTS];
+      } else {
+        self_data[tid] = 0xFFFFFFFF;
+      }
+    }
+
+  }
+  //sort_index(sortarray, array_tmp, data, tid);
+
+ // sort_struct(array_tmp, sortarray, struct_tmp, tid);
 }
 
 sorta sortarray[NUM_ELEMENT];  //定义为全局变量避免堆栈溢出
@@ -322,6 +278,7 @@ int main(void) {
   sorta *gpu_sortarray;
   sorta *struct_tmp;
 
+  Lock myLock;
   cudaMalloc((void **)&gpu_srcData, sizeof(unsigned long) * NUM_ELEMENT);
   cudaMalloc((void **)&array_tmp, sizeof(unsigned long) * NUM_ELEMENT);
   cudaMalloc((sorta **)&gpu_sortarray, sizeof(sorta) * NUM_ELEMENT);
@@ -339,7 +296,8 @@ int main(void) {
   cudaEventCreate(&stop);   //结束时间
 
   cudaEventRecord(start, 0);  //记录起始时间
-  cspincuda<<<grid, block>>>(gpu_srcData, array_tmp, gpu_sortarray, struct_tmp);
+
+  cspincuda<<<grid, block>>>(gpu_srcData, array_tmp, gpu_sortarray, struct_tmp, myLock);
   cudaDeviceSynchronize();
   cudaEventRecord(stop, 0);  //执行完代码，记录结束时间
 
@@ -356,12 +314,9 @@ int main(void) {
   for (int i = 0; i < NUM_ELEMENT - 1; i++) {
     if (sortarray[i].key != sortarray[i + 1].key - 1) {
       result++;
-      // printf("%ld\n",sortarray[i].key);
-      // printf("%ld\n",sortarray[i+1].key);
     }
-    // printf("%ld\n",sortarray[i].key);
   }
-  /*
+/*  
   for (int i = 0; i < NUM_ELEMENT; i++) {
     printf("%ld\n", sortarray[i].key);
   }

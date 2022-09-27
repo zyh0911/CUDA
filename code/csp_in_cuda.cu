@@ -60,6 +60,35 @@ __device__ void radix_sort(unsigned long *const sort_tmp,
     __syncthreads();
   }
 }
+
+__device__ void reduce(unsigned long *const g_idata,
+                       unsigned long g_odata) {
+  __shared__ float partialSum[8];
+  unsigned long  tmp[2];
+  //确定索引
+  int i = threadIdx.x + blockIdx.x * blockDim.x;
+  int tid = threadIdx.x;
+
+  //传global memory数据到shared memory
+  partialSum[tid] = g_idata[i];
+
+  //传输同步
+  __syncthreads();
+
+  //在共享存储器中进行规约
+  for (int stride = blockDim.x / 2; stride > 0; stride /= 2) {
+    if (tid < stride)
+      partialSum[tid] = min(partialSum[tid + stride], partialSum[tid]);
+    __syncthreads();
+  }
+  //将当前block的计算结果写回输出数组
+  if (tid == 0) tmp[blockIdx.x] = partialSum[0];
+  __syncthreads();
+
+  g_odata=min(tmp[0],tmp[1]);
+  __syncthreads();
+}
+
 //这里有问题，block之间无法同步，导致信息传输有问题
 __device__ void merge(unsigned long *const data, unsigned long *const array_tmp,
                       const unsigned int tid, unsigned long *const self_data,
@@ -86,13 +115,15 @@ __device__ void merge(unsigned long *const data, unsigned long *const array_tmp,
       self_data[tid] = 0xFFFFFFFF;
     }
     */
+   /*
     //__syncthreads();
 
     //__threadfence();
     //__threadfence();
     for (int j = 0; j < NUM_LISTS; j++) {
       min_data = min(min_data, self_data[j]);
-    }
+    }*/
+    reduce(self_data,min_data);
     //__threadfence_block();
     // atomicMin(&min_data,self_data[tid]);
     //__syncthreads();
