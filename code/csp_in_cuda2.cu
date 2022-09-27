@@ -226,10 +226,10 @@ __global__ void cspincuda(unsigned long *const data,
   radix_sort(data, array_tmp, tid);
 
   //merge(data, array_tmp, tid,myLock);
-  unsigned int index[GRID_SIZE][NUM_LISTS / GRID_SIZE];
-  unsigned long self_data[NUM_LISTS];
+  __shared__ unsigned int index[GRID_SIZE][NUM_LISTS / GRID_SIZE];
+  __shared__ unsigned long self_data[NUM_LISTS];
 
-  __shared__ unsigned int min_value;
+   __shared__ unsigned int min_value;
   unsigned int min_data[GRID_SIZE];
   self_data[tid] = data[tid];
   index[blockIdx.x][threadIdx.x] = 0;

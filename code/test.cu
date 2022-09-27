@@ -1,75 +1,58 @@
-#include "cuda_runtime.h"
-#include "device_launch_parameters.h"
-#include <iostream>
-using namespace std;
- 
-const int threadsPerBlock=512 ; 
-const int N=2048;
-const int blocksPerGrid = (N + threadsPerBlock -1) / threadsPerBlock;
- 
-__global__ void ReductionSum(float *d_a, float *d_partial_sum)
+#include<iostream>
+#include<stdio.h>
+#include<stdlib.h>
+#include"gputimer.h"
+#include<time.h>
+
+
+
+using namespace Gadgetron;
+
+
+
+__global__ void mergeBlocks(int *a, int *temp, int sortedsize)
 {
-	//申请共享内存，存在于每个block中 
-	__shared__ float partialSum[threadsPerBlock];
- 
-	//确定索引
-	int i = threadIdx.x + blockIdx.x * blockDim.x;
-	int tid = threadIdx.x;
- 
-	//传global memory数据到shared memory
-	partialSum[tid]=d_a[i];
- 
-	//传输同步
-	__syncthreads();
-	
-	//在共享存储器中进行规约
-	for(int stride = blockDim.x/2; stride > 0; stride/=2)
-	{
-		if(tid<stride) partialSum[tid]=min(partialSum[tid+stride],partialSum[tid]);
-		__syncthreads();
-	}
-	//将当前block的计算结果写回输出数组
-	if(tid==0)  
-		d_partial_sum[blockIdx.x] = partialSum[0];
+        int id = blockIdx.x;
+
+        int index1 = id * 2 * sortedsize;
+        int endIndex1 = index1 + sortedsize;
+        int index2 = endIndex1;
+        int endIndex2 = index2 + sortedsize;
+        int targetIndex = id * 2 * sortedsize;
+        int done = 0;
+        while (!done)
+        {
+                if ((index1 == endIndex1) && (index2 < endIndex2))
+                        temp[targetIndex++] = a[index2++];
+                else if ((index2 == endIndex2) && (index1 < endIndex1))
+                        temp[targetIndex++] = a[index1++];
+                else if (a[index1] < a[index2])
+                        temp[targetIndex++] = a[index1++];
+                else
+                        temp[targetIndex++] = a[index2++];
+                if ((index1 == endIndex1) && (index2 == endIndex2))
+                        done = 1;
+        }
 }
- 
-int main()
+
+int main(int argc, char* argv[])
 {
-	//申请host端内存及初始化
-	float   *h_a,*h_partial_sum;	
-    h_a = (float*)malloc( N*sizeof(float) );
-    h_partial_sum = (float*)malloc( blocksPerGrid*sizeof(float));
-	
-	for (int i=0; i < N; ++i)  h_a[i] = 1;
-	
-	//分配显存空间
-	int size = sizeof(float);
-	float *d_a;
-	float *d_partial_sum;
-	cudaMalloc((void**)&d_a,N*size);
-	cudaMalloc((void**)&d_partial_sum,blocksPerGrid*size);
- 
-	//把数据从Host传到Device
-	cudaMemcpy(d_a, h_a, size*N, cudaMemcpyHostToDevice);
- 
-	//调用内核函数
-	ReductionSum<<<blocksPerGrid,threadsPerBlock>>>(d_a,d_partial_sum);
- 
-	//将结果传回到主机端
-	cudaMemcpy(h_partial_sum, d_partial_sum, size*blocksPerGrid, cudaMemcpyDeviceToHost);
- 
-	//将部分和求和
-	int sum=0;
-    for (int i=0; i < blocksPerGrid; ++i)  sum += h_partial_sum[i];
- 
-	cout<<"min="<<sum<<endl;
-	
-	//释放显存空间
-	cudaFree(d_a);
-	cudaFree(d_partial_sum);
- 
-	free(h_a);
-    free(h_partial_sum);
- 
+    int blocks = BLOCKS/2;
+        int sortedsize = THREADS;
+        while (blocks > 0)
+        {
+          mergeBlocks<<<blocks,1>>>(dev_a, dev_temp, sortedsize);
+          cudaMemcpy(dev_a, dev_temp, N*sizeof(int), cudaMemcpyDeviceToDevice);
+          blocks /= 2;
+          sortedsize *= 2;
+        }
+        cudaMemcpy(a, dev_a, N*sizeof(int), cudaMemcpyDeviceToHost);
+    for(int i=0;i<Num;i++){
+        printf("%d\t",arr[i]);
+    }
+    printf("\n");
+
+    cudaFree(ptr);
     return 0;
 }
+
