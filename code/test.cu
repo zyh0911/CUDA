@@ -52,28 +52,28 @@ __device__ void radix_sort(unsigned long *const sort_tmp,
   }
 }
 
-__global__ void merge_block(unsigned long *const g_idata, unsigned long g_odata) {
-  __shared__ float partialSum[8];
-  unsigned long tmp[2];
-  //确定索引
-  int i = threadIdx.x + blockIdx.x * blockDim.x;
-  int tid = threadIdx.x;
 
-  //传global memory数据到shared memory
-  partialSum[tid] = g_idata[i];
-
-  //传输同步
-  __syncthreads();
-
-  //在共享存储器中进行规约
-  for (int stride = blockDim.x / 2; stride > 0; stride /= 2) {
-    if (tid < stride)
-      partialSum[tid] = min(partialSum[tid + stride], partialSum[tid]);
-    __syncthreads();
-  }
-  //将当前block的计算结果写回输出数组
-  if (tid == 0) tmp[blockIdx.x] = partialSum[0];
-  __syncthreads();
+__device__ void warpReduce(volatile int *sdata, unsigned int tid) {
+if (BLOCK_SIZE >= 64) sdata[tid] += sdata[tid + 32];
+if (BLOCK_SIZE >= 32) sdata[tid] += sdata[tid + 16];
+if (BLOCK_SIZE >= 16) sdata[tid] += sdata[tid + 8];
+if (BLOCK_SIZE >= 8) sdata[tid] += sdata[tid + 4];
+if (BLOCK_SIZE >= 4) sdata[tid] += sdata[tid + 2];
+if (BLOCK_SIZE >= 2) sdata[tid] += sdata[tid + 1];
+}
+__global__ void sort_block(int *g_idata, int *g_odata, unsigned int n) {
+extern __shared__ int sdata[];
+unsigned int tid = threadIdx.x;
+unsigned int i = blockIdx.x*(BLOCK_SIZE*2) + tid;
+unsigned int gridSize = BLOCK_SIZE*2*gridDim.x;
+sdata[tid] = 0;
+while (i < n) { sdata[tid] += g_idata[i] + g_idata[i+BLOCK_SIZE]; i += gridSize; }
+__syncthreads();
+if (BLOCK_SIZE >= 512) { if (tid < 256) { sdata[tid] += sdata[tid + 256]; } __syncthreads(); }
+if (BLOCK_SIZE >= 256) { if (tid < 128) { sdata[tid] += sdata[tid + 128]; } __syncthreads(); }
+if (BLOCK_SIZE >= 128) { if (tid < 64) { sdata[tid] += sdata[tid + 64]; } __syncthreads(); }
+if (tid < 32) warpReduce(sdata, tid);
+if (tid == 0) g_odata[blockIdx.x] = sdata[0];
 }
 
 
@@ -193,32 +193,20 @@ int main(void) {
   }
   sort_index<<<GRID_SIZE, BLOCK_SIZE>>>(gpu_sortarray, array_tmp, array_tmp_2);
   sort_struct<<<GRID_SIZE, BLOCK_SIZE>>>(array_tmp, gpu_sortarray, struct_tmp);
-
-  /*
-    unsigned long *gpu_srcData;
-    unsigned long min_data;
-    unsigned int *index;
-    cudaMalloc((void **)&gpu_srcData, sizeof(unsigned long) * NUM_ELEMENT);
-
-    cudaMalloc((void **)&self_data, sizeof(unsigned long) * NUM_LISTS);
-    cudaMalloc((void **)&index, sizeof(unsigned int) * NUM_LISTS);
-    cudaMalloc((void **)&min_data, sizeof(unsigned long));
-  */
-
+  ///////////////////////////////////////////
   cudaMemcpy(gpu_sortarray, sortarray, sizeof(sorta) * NUM_ELEMENT,
              cudaMemcpyHostToDevice);
 
-  // cudaError_t error = cudaGetLastError();
-  dim3 grid(2);
-  dim3 block(8);
 
   cudaEvent_t start, stop;  //定义事件
   cudaEventCreate(&start);  //起始时间
   cudaEventCreate(&stop);   //结束时间
 
   cudaEventRecord(start, 0);  //记录起始时间
-  cspincuda<<<grid, block>>>(gpu_srcData, array_tmp, gpu_sortarray, struct_tmp,
-                             self_data, min_data, index);
+  
+
+
+
   cudaDeviceSynchronize();
   cudaEventRecord(stop, 0);  //执行完代码，记录结束时间
 
@@ -237,8 +225,6 @@ int main(void) {
   for (int i = 0; i < NUM_ELEMENT - 1; i++) {
     if (sortarray[i].key > sortarray[i + 1].key) {
       result++;
-      // printf("%ld\n",sortarray[i].key);
-      // printf("%ld\n",sortarray[i+1].key);
     }
     // printf("%ld\n",sortarray[i].key);
   }
