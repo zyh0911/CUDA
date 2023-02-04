@@ -33,18 +33,18 @@ int main(void)
         c_swap(sortarray[rand()%7].key, sortarray[i].key);
     }
     clock_t clock_start, clock_end;
-    cudaEvent_t start, stop;//定义事件
-    cudaEventCreate(&start);//起始时间
-	cudaEventCreate(&stop);//结束时间
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+	cudaEventCreate(&stop);
 	
     cudaMallocManaged((void **)&sortarray,sizeof(sortarray)*NUM_ELEMENT);
 
     clock_start = clock();
-    cudaEventRecord(start, 0);//记录起始时间
+    cudaEventRecord(start, 0);
     thrust::sort(sortarray,sortarray+NUM_ELEMENT,seed_compare);
     cudaDeviceSynchronize();
     clock_end = clock();
-    cudaEventRecord(stop, 0);//执行完代码，记录结束时间
+    cudaEventRecord(stop, 0);
 
 	cudaEventSynchronize(stop);
     cudaError_t error = cudaGetLastError();   
