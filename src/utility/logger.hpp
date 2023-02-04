@@ -8,14 +8,14 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
-namespace odrc::util {
+namespace src::util {
 enum class log_level { trace, debug, info, warn, error, critical, off };
 
 class logger {
  public:
   logger(const std::string& log_filename,
-         const log_level&   log_level,
-         bool               output_to_console = true) {
+         const log_level& log_level,
+         bool output_to_console = true) {
     _sinks.push_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>(
         log_filename.c_str()));
     if (output_to_console)
@@ -80,7 +80,7 @@ class logger {
 
  private:
   std::shared_ptr<spdlog::logger> _logger;
-  std::vector<spdlog::sink_ptr>   _sinks;
+  std::vector<spdlog::sink_ptr> _sinks;
 
   const std::map<log_level, spdlog::level::level_enum> _log_level_map{
       {log_level::trace, spdlog::level::level_enum::trace},
@@ -92,4 +92,4 @@ class logger {
       {log_level::off, spdlog::level::level_enum::off},
   };
 };
-}  // namespace odrc::util
+}  // namespace src::util

@@ -1,17 +1,17 @@
 #pragma once
 
-#include <odrc/utility/logger.hpp>
+#include <src/utility/logger.hpp>
 
 #include <chrono>
 #include <iostream>
 #include <string>
 
-namespace odrc::util {
+namespace src::util {
 
 class timer {
  public:
   timer(std::string tag, logger& time_logger) {
-    _tag    = tag;
+    _tag = tag;
     _logger = &time_logger;
   }
 
@@ -36,10 +36,10 @@ class timer {
   int64_t get_elapsed() { return elapsed_ms; }
 
  private:
-  std::string                                                 _tag;
-  logger*                                                     _logger;
-  int64_t                                                     elapsed_ms = 0;
+  std::string _tag;
+  logger* _logger;
+  int64_t elapsed_ms = 0;
   std::chrono::time_point<std::chrono::high_resolution_clock> _begin_time_point;
 };
 
-}  // namespace odrc::util
+}  // namespace src::util

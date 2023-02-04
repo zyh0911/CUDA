@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace odrc {
+namespace src {
 
 // logic errors
 
@@ -32,4 +32,4 @@ class invalid_file : public std::runtime_error {
   invalid_file(const char* what_arg) : std::runtime_error(what_arg) {}
 };
 
-}  // namespace odrc
+}  // namespace src

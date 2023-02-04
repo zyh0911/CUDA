@@ -22,8 +22,6 @@ bool seed_compare(SORTSTRUCT a, SORTSTRUCT b)
     sorta sortarray[NUM_ELEMENT];
 int main(void)
 {
-    
-    
     for(unsigned long i = 0; i < NUM_ELEMENT; i++)  
     {
         sortarray[i].key = i;
