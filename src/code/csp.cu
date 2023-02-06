@@ -1,2 +1,6 @@
-#include <src/code/csp.hpp>
+#include <csp.hpp>
+namespace src::code {
+
+
+}
 

@@ -1,4 +1,4 @@
-add_library(libcode mergesort_in_thrust.cu)
+add_library(libcode merge_sort_in_thrust.cu)
 target_include_directories(libcode PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(libcode PRIVATE ${CUDA_LIBRARIES} )
 target_compile_options(libcode PRIVATE
